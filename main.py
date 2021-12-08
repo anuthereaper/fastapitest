@@ -1,92 +1,61 @@
+#fastAPI with body and multiple methods within 1 fastAPI
+from typing import Optional
 from typing import List
-import databases
-import sqlalchemy
-from fastapi import FastAPI, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
+from fastapi import FastAPI
 from pydantic import BaseModel
-import os
-import urllib
+from pydantic import BaseSettings
 
-#DATABASE_URL = "sqlite:///./test.db"
+from fastapi import Body, FastAPI, status
+from fastapi.responses import JSONResponse
 
-host_server = os.environ.get('host_server', 'localhost')
-db_server_port = urllib.parse.quote_plus(str(os.environ.get('db_server_port', '5432')))
-database_name = os.environ.get('database_name', 'fastapi')
-db_username = urllib.parse.quote_plus(str(os.environ.get('db_username', 'postgres')))
-db_password = urllib.parse.quote_plus(str(os.environ.get('db_password', 'secret')))
-ssl_mode = urllib.parse.quote_plus(str(os.environ.get('ssl_mode','prefer')))
-DATABASE_URL = 'postgresql://{}:{}@{}:{}/{}?sslmode={}'.format(db_username, db_password, host_server, db_server_port, database_name, ssl_mode)
+class Order_info(BaseSettings):
+    #app_name: str = "Awesome API"
+    order_id: int = 0
 
-database = databases.Database(DATABASE_URL)
+#uvicorn fastAPI1:app --reload
+class orders(BaseModel):
+    id: Optional[str] = None
+    crust: str
+    toppings: List[str]
+    # EXAMPLE Body
+    """
+    {
+    "crust": "thin",
+    "toppings": ["cheese","jalapenos"]
+    }
+    """
 
-metadata = sqlalchemy.MetaData()
+orders_list = []
+last_order_id = 0
+order_item = {
+    "crust": "Thick",
+    "toppings": ["cheese","jalapenos"]
+    }
 
-notes = sqlalchemy.Table(
-    "notes",
-    metadata,
-    sqlalchemy.Column("id", sqlalchemy.Integer, primary_key=True),
-    sqlalchemy.Column("text", sqlalchemy.String),
-    sqlalchemy.Column("completed", sqlalchemy.Boolean),
-)
+#orders_list.append(order_item)   
+order_info = Order_info() 
+app = FastAPI()
 
-engine = sqlalchemy.create_engine(
-    #DATABASE_URL, connect_args={"check_same_thread": False}
-    DATABASE_URL, pool_size=3, max_overflow=0
-)
-metadata.create_all(engine)
+@app.post("/orders/")
+async def create_item(order: orders):
+    #print(order)
+    #print(orders_list)
+    #print(order_info.order_id)
+    order_info.order_id = order_info.order_id + 1
+    order_id = order_info.order_id
+    order.id = order_id
+    orders_list.append(order)
+    return orders_list
 
-class NoteIn(BaseModel):
-    text: str
-    completed: bool
+@app.get("/orders/")
+async def get_all_orders():
+    return {"Order List" : orders_list}
 
-class Note(BaseModel):
-    id: int
-    text: str
-    completed: bool
+@app.get("/orders/{option}")
+async def get_orders(option : int):
+    for i in orders_list:
+        if i.id == option:
+            print(i)
+            return i
 
-app = FastAPI(title="REST API using FastAPI PostgreSQL Async EndPoints")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
-app.add_middleware(GZipMiddleware)
-
-@app.on_event("startup")
-async def startup():
-    await database.connect()
-
-@app.on_event("shutdown")
-async def shutdown():
-    await database.disconnect()
-
-@app.post("/notes/", response_model=Note, status_code = status.HTTP_201_CREATED)
-async def create_note(note: NoteIn):
-    query = notes.insert().values(text=note.text, completed=note.completed)
-    last_record_id = await database.execute(query)
-    return {**note.dict(), "id": last_record_id}
-
-@app.put("/notes/{note_id}/", response_model=Note, status_code = status.HTTP_200_OK)
-async def update_note(note_id: int, payload: NoteIn):
-    query = notes.update().where(notes.c.id == note_id).values(text=payload.text, completed=payload.completed)
-    await database.execute(query)
-    return {**payload.dict(), "id": note_id}
-
-@app.get("/notes/", response_model=List[Note], status_code = status.HTTP_200_OK)
-async def read_notes(skip: int = 0, take: int = 20):
-    query = notes.select().offset(skip).limit(take)
-    return await database.fetch_all(query)
-
-@app.get("/notes/{note_id}/", response_model=Note, status_code = status.HTTP_200_OK)
-async def read_notes(note_id: int):
-    query = notes.select().where(notes.c.id == note_id)
-    return await database.fetch_one(query)
-
-@app.delete("/notes/{note_id}/", status_code = status.HTTP_200_OK)
-async def delete_note(note_id: int):
-    query = notes.delete().where(notes.c.id == note_id)
-    await database.execute(query)
-    return {"message": "Note with id: {} deleted successfully!".format(note_id)}
+    return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content="")
